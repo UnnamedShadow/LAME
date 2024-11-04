@@ -1,0 +1,15 @@
+[package]
+name = "LAME"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+libc = "0.2.161"
+
+[lib]
+name = "lame"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lame"
+path = "src/main.rs"
