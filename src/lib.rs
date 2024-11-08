@@ -1,27 +1,33 @@
 use core::slice;
-use std::{collections::HashMap, ffi};
-
 use libc::{dlclose, dlopen, dlsym};
+use std::{collections::HashMap, ffi, process::Command};
 
 #[repr(C)]
 #[derive(Clone)]
 pub struct Arr<T> {
-    data: *const T,
-    len: usize,
+    pub data: *const T,
+    pub len: usize,
+}
+
+impl<T> Arr<T> {
+    pub fn as_slice(&self) -> &[T] {
+        unsafe { slice::from_raw_parts(self.data, self.len) }
+    }
 }
 
 #[repr(C)]
+#[derive(Clone)]
 pub struct Macro {
-    name: *const ffi::c_char,
-    file: *const ffi::c_char,
-    data: Arr<u8>,
+    pub name: *const ffi::c_char,
+    pub file: *const ffi::c_char,
+    pub data: Arr<u8>,
 }
 
 #[no_mangle]
 pub extern "C" fn parse(raw: Arr<u8>) -> Macro {
     // a simple parser that splits the file into the following pattern:
     // symbol@path/to/file!input some code or something
-    let data = unsafe { slice::from_raw_parts(raw.data, raw.len) };
+    let data = raw.as_slice();
     let (name, data) = data.split_at(data.iter().position(|c| *c == b'@').unwrap());
     let (file, data) = data.split_at(data.iter().position(|c| *c == b'!').unwrap());
     // adding the null byte at the end
@@ -41,7 +47,7 @@ pub extern "C" fn parse(raw: Arr<u8>) -> Macro {
 
 #[no_mangle]
 pub extern "C" fn expand(raw: Arr<Macro>) -> Arr<Arr<u8>> {
-    let data = unsafe { slice::from_raw_parts(raw.data, raw.len) };
+    let data = raw.as_slice();
     let mut files = HashMap::new();
     let mut functions = HashMap::new();
     let mut acc = vec![];
@@ -65,6 +71,46 @@ pub extern "C" fn expand(raw: Arr<Macro>) -> Arr<Arr<u8>> {
         }
     }
     let acc = acc.as_slice();
+    Arr {
+        data: acc.as_ptr(),
+        len: acc.len(),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn compile(raw: Arr<*const ffi::c_char>) {
+    raw.as_slice()
+        .iter()
+        .map(|ptr| unsafe { std::ffi::CStr::from_ptr(*ptr) })
+        .map(|origin_link| vec![origin_link.to_str().unwrap(), ".lame"].concat())
+        .for_each(|link| {
+            Command::new(link).output().unwrap();
+        });
+}
+
+#[no_mangle]
+pub extern "C" fn split_parenthesis(raw: Arr<u8>) -> Arr<Arr<u8>> {
+    let mut nest_counter = 0;
+    let mut start = 0;
+    let mut acc = vec![];
+    for (n, c) in raw.as_slice().iter().enumerate() {
+        if *c == b'(' {
+            nest_counter += 1;
+            if nest_counter == 1 {
+                start = n
+            }
+        }
+        if *c == b')' {
+            if nest_counter == 1 {
+                let s = &raw.as_slice()[start..n];
+                acc.push(Arr {
+                    data: s.as_ptr(),
+                    len: s.len(),
+                });
+            }
+            nest_counter -= 1;
+        }
+    }
     Arr {
         data: acc.as_ptr(),
         len: acc.len(),
