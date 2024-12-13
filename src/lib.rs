@@ -1,99 +1,72 @@
-use core::slice;
-use libc::{dlclose, dlopen, dlsym};
-use std::{collections::HashMap, ffi, process::Command};
+use libloading::Library;
+use safer_ffi::prelude::*;
+use std::{collections::HashMap, process::Command};
 
+#[derive_ReprC]
 #[repr(C)]
-#[derive(Clone)]
-pub struct Arr<T> {
-    pub data: *const T,
-    pub len: usize,
-}
-
-impl<T> Arr<T> {
-    pub fn as_slice(&self) -> &[T] {
-        unsafe { slice::from_raw_parts(self.data, self.len) }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Macro {
-    pub name: *const ffi::c_char,
-    pub file: *const ffi::c_char,
-    pub data: Arr<u8>,
+    pub name: repr_c::String,
+    pub file: repr_c::String,
+    pub data: repr_c::Vec<u8>,
 }
 
-#[no_mangle]
-pub extern "C" fn parse(raw: Arr<u8>) -> Macro {
-    // a simple parser that splits the file into the following pattern:
-    // symbol@path/to/file!input some code or something
-    let data = raw.as_slice();
+#[ffi_export]
+pub fn parse(data: repr_c::Vec<u8>) -> Macro {
     let (name, data) = data.split_at(data.iter().position(|c| *c == b'@').unwrap());
     let (file, data) = data.split_at(data.iter().position(|c| *c == b'!').unwrap());
-    // adding the null byte at the end
-    let mut name = name.to_vec();
-    name.push(0);
-    let mut file = file.to_vec();
-    file.push(0);
     Macro {
-        name: name.as_slice().as_ptr() as *const _,
-        file: file.as_slice().as_ptr() as *const _,
-        data: Arr {
-            data: data.as_ptr(),
-            len: data.len(),
-        },
+        name: repr_c::String::from(String::from_utf8(name[1..].to_vec()).unwrap()),
+        file: repr_c::String::from(String::from_utf8(file[1..].to_vec()).unwrap()),
+        data: repr_c::Vec::from(data[1..(data.len() - 1)].to_vec()),
     }
 }
 
-#[no_mangle]
-pub extern "C" fn expand(raw: Arr<Macro>) -> Arr<Arr<u8>> {
-    let data = raw.as_slice();
+#[ffi_export]
+pub fn expand(data: repr_c::Vec<Macro>) -> repr_c::Vec<repr_c::Vec<u8>> {
     let mut files = HashMap::new();
     let mut functions = HashMap::new();
     let mut acc = vec![];
-    for datum in data {
-        if !functions.contains_key(&datum.name) {
-            if !files.contains_key(&datum.file) {
-                files.insert(datum.file, unsafe { dlopen(datum.file as *const i8, 0) });
+    for datum in data.iter() {
+        if !functions.contains_key(&datum.name.clone().to_string()) {
+            if !files.contains_key(&datum.file.clone().to_string()) {
+                let library =
+                    unsafe { Library::new(datum.file.clone().to_string().as_str()).unwrap() };
+                files.insert(datum.file.clone().to_string(), library);
             }
-            functions.insert(datum.name, unsafe {
-                dlsym(files[&datum.file], datum.name as *const i8)
+            let lib = { &files[&datum.file.clone().to_string()] };
+            functions.insert(datum.name.clone().to_string(), unsafe {
+                *lib.get::<unsafe extern "C" fn(data: repr_c::Vec<u8>) -> repr_c::Vec<u8>>(
+                    &datum.name.to_string().as_bytes(),
+                )
+                .unwrap()
             });
         }
-        let func: *const fn(data: Arr<u8>) -> Arr<u8> =
-            unsafe { *functions.get(&datum.name).unwrap().cast() };
-        acc.push(unsafe { (*func)(datum.data.clone()) });
+        acc.push(unsafe { functions[&datum.name.clone().to_string()](datum.data.clone()) });
     }
-    for (name, handle) in files {
-        let err = unsafe { dlclose(handle) };
-        if err != 0 {
-            println!("failed to close '{:#?}' error code: {}", name, err);
-        }
+    for (_, lib) in files.drain() {
+        lib.close().unwrap();
     }
-    let acc = acc.as_slice();
-    Arr {
-        data: acc.as_ptr(),
-        len: acc.len(),
-    }
+    acc.into()
 }
 
-#[no_mangle]
-pub extern "C" fn compile(raw: Arr<*const ffi::c_char>) {
-    raw.as_slice()
-        .iter()
-        .map(|ptr| unsafe { std::ffi::CStr::from_ptr(*ptr) })
-        .map(|origin_link| vec![origin_link.to_str().unwrap(), ".lame"].concat())
+#[ffi_export]
+pub fn compile(raw: repr_c::Vec<repr_c::String>) {
+    raw.iter()
+        .map(|origin_link| vec![origin_link.to_string().as_str(), ".build"].concat())
         .for_each(|link| {
-            Command::new(link).output().unwrap();
+            Command::new(link.clone())
+                .output()
+                .unwrap_or_else(|status| panic!("Failed to compile '{:#?}'", status));
         });
 }
 
-#[no_mangle]
-pub extern "C" fn split_parenthesis(raw: Arr<u8>) -> Arr<Arr<u8>> {
+#[ffi_export]
+pub fn split_parenthesis(data: repr_c::Vec<u8>) -> repr_c::Vec<repr_c::Vec<u8>> {
     let mut nest_counter = 0;
     let mut start = 0;
     let mut acc = vec![];
-    for (n, c) in raw.as_slice().iter().enumerate() {
+    for (n, c) in data.iter().enumerate() {
         if *c == b'(' {
             nest_counter += 1;
             if nest_counter == 1 {
@@ -102,17 +75,20 @@ pub extern "C" fn split_parenthesis(raw: Arr<u8>) -> Arr<Arr<u8>> {
         }
         if *c == b')' {
             if nest_counter == 1 {
-                let s = &raw.as_slice()[start..n];
-                acc.push(Arr {
-                    data: s.as_ptr(),
-                    len: s.len(),
-                });
+                acc.push(data[start..n].to_vec().into());
             }
             nest_counter -= 1;
         }
+        nest_counter = nest_counter.clamp(0, i32::MAX);
     }
-    Arr {
-        data: acc.as_ptr(),
-        len: acc.len(),
-    }
+    acc.into()
+}
+
+#[cfg(feature = "h")]
+pub fn gen_headers() {
+    safer_ffi::headers::builder()
+        .to_file("lame.h")
+        .unwrap()
+        .generate()
+        .unwrap();
 }

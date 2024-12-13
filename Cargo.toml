@@ -3,13 +3,25 @@ name = "LAME"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-libc = "0.2.161"
+default-run = "lame"
 
 [lib]
 name = "lame"
 path = "src/lib.rs"
+crate-type = ["staticlib", "lib"]
 
 [[bin]]
 name = "lame"
 path = "src/main.rs"
+
+[[bin]]
+name = "lame-headers"
+path = "src/h.rs"
+
+[dependencies]
+libloading = "0.8.6"
+safer-ffi = "0.1.13"
+
+[features]
+h = ["safer-ffi/headers"]
+default = ["h"]

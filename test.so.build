@@ -1,0 +1,3 @@
+#! /usr/bin/env bash
+
+gcc ./target/release/liblame.a test.c -shared -o test.so
