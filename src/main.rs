@@ -8,10 +8,14 @@ fn main() {
         .skip(1)
         .map(|path| read_to_string(path + ".lame").unwrap().as_bytes().to_vec())
         .map(|rawf| {
-            split_parenthesis(rawf.into())
-                .iter()
-                .map(|rawm| parse(rawm.clone()))
-                .collect::<Vec<_>>()
+            if rawf.first().is_some_and(|c| *c == b'#') {
+                vec![parse(rawf.into())]
+            } else {
+                split_parenthesis(rawf.into())
+                    .iter()
+                    .map(|rawm| parse(rawm.clone()))
+                    .collect::<Vec<_>>()
+            }
         })
         .collect::<Vec<_>>();
     let flat = macros.concat();
