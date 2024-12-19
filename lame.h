@@ -31,24 +31,10 @@ typedef struct Vec_uint8 {
     size_t cap;
 } Vec_uint8_t;
 
-/** \brief
- *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
- */
-typedef struct Vec_Vec_uint8 {
-    /** <No documentation available> */
-    Vec_uint8_t * ptr;
-
-    /** <No documentation available> */
-    size_t len;
-
-    /** <No documentation available> */
-    size_t cap;
-} Vec_Vec_uint8_t;
-
 /** <No documentation available> */
 void
 compile (
-    Vec_Vec_uint8_t raw);
+    Vec_uint8_t const * link);
 
 /** <No documentation available> */
 typedef struct Macro {
@@ -76,20 +62,65 @@ typedef struct Vec_Macro {
     size_t cap;
 } Vec_Macro_t;
 
+/** \brief
+ *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
+ */
+typedef struct Vec_Vec_uint8 {
+    /** <No documentation available> */
+    Vec_uint8_t * ptr;
+
+    /** <No documentation available> */
+    size_t len;
+
+    /** <No documentation available> */
+    size_t cap;
+} Vec_Vec_uint8_t;
+
 /** <No documentation available> */
 Vec_Vec_uint8_t
 expand (
-    Vec_Macro_t data);
+    Vec_Macro_t const * data);
+
+/** <No documentation available> */
+Vec_Vec_uint8_t
+generate (
+    Vec_Vec_uint8_t const * data);
 
 /** <No documentation available> */
 Macro_t
 parse (
-    Vec_uint8_t data);
+    Vec_uint8_t const * data);
+
+
+#include <stdbool.h>
 
 /** <No documentation available> */
-Vec_Vec_uint8_t
+typedef struct Data {
+    /** <No documentation available> */
+    bool parenthesized;
+
+    /** <No documentation available> */
+    Vec_uint8_t raw;
+} Data_t;
+
+/** \brief
+ *  Same as [`Vec<T>`][`rust::Vec`], but with guaranteed `#[repr(C)]` layout
+ */
+typedef struct Vec_Data {
+    /** <No documentation available> */
+    Data_t * ptr;
+
+    /** <No documentation available> */
+    size_t len;
+
+    /** <No documentation available> */
+    size_t cap;
+} Vec_Data_t;
+
+/** <No documentation available> */
+Vec_Data_t
 split_parenthesis (
-    Vec_uint8_t data);
+    Vec_uint8_t const * data);
 
 
 #ifdef __cplusplus
